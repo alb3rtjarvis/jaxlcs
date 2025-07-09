@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+sources = ["src"]
+
+[project]
+name = "jaxlcs"
+dynamic = ["version"]
+description = 'JAX-accelerated coherent structure package supporting AD LCS.'
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MPL-2.0"
+keywords = [
+  "applied-mathematics",
+  "dynamical-systems",
+  "jax",
+  "fluid-dynamics",
+  "lcs",
+  "ftle",
+  "lagrangian-coherent-structures"
+]
+authors = [
+  { name = "alb3rtjarvis", email = "ajarvis@vt.edu" },
+]
+classifiers = [
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",    
+  "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "jax>=0.4.38",
+  "diffrax",
+  "interpax",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "jax[cuda12]"
+]
+tpu = [
+    "jax[tpu]"
+]
+test = [
+    "pytest",
+    "pytest-cov",
+]
+lint = [
+    "ruff",
+]
+docs = [
+    "sphinx",
+    "sphinx-rtd-theme",
+    "myst-parser",
+    "sphinx-autoapi",
+    "sphinxcontrib-bibtex",
+    "sphinx-gallery"
+]
+dev = [
+    "jaxlcs[test,lint,docs]",
+    "pre-commit",
+]
+
+[project.urls]
+Issues = "https://github.com/alb3rtjarvis/jaxlcs/issues"
+Source = "https://github.com/alb3rtjarvis/jaxlcs"
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "docs",
+  "examples/data",
+  "img"
+]
+
+[tool.hatch.version]
+path = "src/jaxlcs/__init__.py"
+
+[tool.hatch.envs.default]
+features = ["dev"]
