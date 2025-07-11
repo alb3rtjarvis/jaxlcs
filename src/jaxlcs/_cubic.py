@@ -1,7 +1,18 @@
+# This module largely re-implements interpax code for our specific use cases so we can 
+# compute memory efficient jacobians of cubic interpolants in jax. When tracing through cubic
+# interpolant logic embedded in ode solves for performing AD, generating and evaluating the
+# computational graph can get out of hand. To get around this, we implement custom_jvp and
+# custom_vjp rules in the _vector_field module so the interpolant logic is not part of the
+# computational graph.
+
 import jax
 import jax.numpy as jnp
+from jaxtyping import Array, ArrayLike, Float
+from typing import Tuple
+from diffrax._custom_types import FloatScalarLike
 from interpax._coefs import A_TRICUBIC
 from interpax.utils import asarray_inexact
+from interpax._spline import AbstractInterpolator
 from collections import OrderedDict
 
 
@@ -90,7 +101,7 @@ def _fast_cubic_jac_kernel(xq, yq, zq, x, y, z, fx0, derivs0, fx1, derivs1):
     
     jac = jnp.array([[J00, J01], [J10, J11]]).squeeze()
 
-    return primal_out, jnp.atleast_2d(jac)
+    return jnp.atleast_1d(primal_out), jnp.atleast_2d(jac)
 
 @jax.jit
 def _fast_cubic_curl_kernel(xq, yq, zq, x, y, z, fx0, derivs0, fx1, derivs1):
@@ -138,9 +149,9 @@ def _fast_cubic_curl_kernel(xq, yq, zq, x, y, z, fx0, derivs0, fx1, derivs1):
     J01 = jnp.einsum("lijk...,li,lj,lk->l...", coef0, ttx, tty, ttdz)
     J10 = jnp.einsum("lijk...,li,lj,lk->l...", coef1, ttx, ttdy, ttz)
     
-    curl = J01 - J10
+    curl = (J10 - J01).squeeze()
 
-    return curl
+    return jnp.atleast_1d(curl)
 
 @jax.jit
 def _get_t_der(t: jax.Array, derivative: int, dxi: jax.Array):
@@ -155,7 +166,13 @@ def _get_t_der(t: jax.Array, derivative: int, dxi: jax.Array):
     return jax.lax.switch(derivative, [d0, d1])
 
 
-def fast_cubic_jac(tq, xq, yq, cubic_obj_x, cubic_obj_y):
+def fast_cubic_jac(
+    tq: Float[Array, " Nq"],
+    xq: Float[Array, " Nq"],
+    yq: Float[Array, " Nq"],
+    cubic_obj_x: type[AbstractInterpolator],
+    cubic_obj_y: type[AbstractInterpolator]
+) -> Tuple[Float[Array, " Nq 2"], Float[Array, " Nq 2 2"]]:
     """
     Computes the jacobian of the function defined by f = (cubic_obj_x, cubic_obj_y) @ (tq, xq, yq)
     where derivatives are computed with respect to the spatial coordinates (x, y). Wrapper for the 
@@ -164,21 +181,21 @@ def fast_cubic_jac(tq, xq, yq, cubic_obj_x, cubic_obj_y):
 
     Parameters
     ----------
-    tq : float
-        t query point.
-    xq : float
-        x query point.
-    yq : float
-        y query point.
-    cubic_obj_x : class
+    tq : float or jnp.array
+        t query point(s).
+    xq : float or jnp.array
+        x query point(s).
+    yq : float or jnp.array
+        y query point(s).
+    cubic_obj_x : AbstractInterpolator
         x-cubic interp object.
-    cubic_obj_y : class
+    cubic_obj_y : AbstractInterpolator
         y-cubic interp object.
 
     Returns
     -------
-    jnp.array, shape = (2, 2)
-        jacobian array.
+    tuple
+        tuple containing primal and jacobian.
 
     """
     t = cubic_obj_x.x
@@ -190,3 +207,44 @@ def fast_cubic_jac(tq, xq, yq, cubic_obj_x, cubic_obj_y):
     derivs_y = cubic_obj_y.derivs
 
     return _fast_cubic_jac_kernel(tq, xq, yq, t, x, y, fx, derivs_x, fy, derivs_y)
+
+def fast_cubic_curl(
+    tq: Float[Array, " Nq"],
+    xq: Float[Array, " Nq"],
+    yq: Float[Array, " Nq"],
+    cubic_obj_x: type[AbstractInterpolator],
+    cubic_obj_y: type[AbstractInterpolator]
+) -> Float[Array, " Nq"]: 
+    """
+    Computes the curl of the function defined by f = (cubic_obj_x, cubic_obj_y) @ (tq, xq, yq)
+    Wrapper for the function _fast_cubic_curl_kernel that unpacks the interpolant objects so the 
+    core logic can be compiled.
+
+    Parameters
+    ----------
+    tq : float or jnp.array
+        t query point(s).
+    xq : float or jnp.array
+        x query point(s).
+    yq : float or jnp.array
+        y query point(s).
+    cubic_obj_x : AbstractInterpolator
+        x-cubic interp object.
+    cubic_obj_y : AbstractInterpolator
+        y-cubic interp object.
+
+    Returns
+    -------
+    jnp.array
+        curl value(s).
+
+    """
+    t = cubic_obj_x.x
+    x = cubic_obj_x.y
+    y = cubic_obj_x.z
+    fx = cubic_obj_x.f
+    derivs_x = cubic_obj_x.derivs
+    fy = cubic_obj_y.f
+    derivs_y = cubic_obj_y.derivs
+
+    return _fast_cubic_curl_kernel(tq, xq, yq, t, x, y, fx, derivs_x, fy, derivs_y)
