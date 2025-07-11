@@ -50,11 +50,13 @@ dt0 = 1e-2   # initial time spacing for solver
 stepsize_controller = diffrax.PIDController(rtol=1e-3, atol=1e-5)   
 
 # get the flowmap function, since autodiff=1, it is actually the Jacobian of the flowmap
-jac_fn = jlcs.flowmap(term, solver, stepsize_controller, autodiff=ad, vmap_y0=True, chunk_t0=False)
+jac_fn = jlcs.flowmap(
+    term, solver, stepsize_controller, autodiff=ad, vmap_y0=True, chunk_t0=False
+)
 
 # create initial conditions
 Nt, Nx, Ny = 25, 101, 51
-t0span = jnp.linspace(0.0, 0.5, Nt)
+t0span = jnp.linspace(0.0, 0.5, 25)
 xq = jnp.linspace(0.0, 2.0, Nx)
 yq = jnp.linspace(0.0, 1.0, Ny)
 
@@ -78,11 +80,13 @@ t0_chunk = t0span.reshape(5, -1)
 
 # can compute series of DF's with either version, one may be faster depending on hardware and
 # problem size
-DF_t0span = jlcs.flowmap_loop(jac_fn, t0span, Y0, T, dt0, chunk_t0=False)  # will loop over t0span
+
+# will loop over t0span
+DF_t0span = jlcs.flowmap_loop(jac_fn, t0span, Y0, T, dt0, chunk_t0=False)
+# will loop over t0span chunks
 DF_t0_chunk = jlcs.flowmap_loop(
     jac_fn_chunk, t0_chunk, Y0, T, dt0, chunk_t0=True
-)  # will loop over t0span chunks
-
+)
 ```
 
 ##  Similartities and differences with NumbaCS
