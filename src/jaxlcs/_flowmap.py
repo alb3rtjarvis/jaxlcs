@@ -100,28 +100,12 @@ def flowmap(
             "autodiff must be set to 1 (for forward AD), -1 (for backward AD), or 0 (for no AD)"
         )
         
-    match (vmap_y0, chunk_t0):
-        case (True, True):
-            vmap_over_y0 = jax.vmap(solve_func, in_axes=(None, 0, None, None))
-            chunk_over_t0 = jax.vmap(vmap_over_y0, in_axes=(0, None, None, None))
-            
-            return jax.jit(chunk_over_t0) if jit_compile else chunk_over_t0
+    if vmap_y0:
+        solve_func = jax.vmap(solve_func, in_axes=(None, 0, None, None, None))
+    if chunk_t0:
+        solve_func = jax.vmap(solve_func, in_axes=(0, None, None, None, None))
         
-        case (True, False):
-            vmap_over_y0 = jax.vmap(solve_func, in_axes=(None, 0, None, None))
-            
-            return jax.jit(vmap_over_y0) if jit_compile else vmap_over_y0
-        
-        case (False, True):
-            # This case is not recommended in general! This will essentially vmap over only t0.
-            # It is recommended if only vmapping over one arg, it should be the larger batch, y0.
-            vmap_over_t0 = jax.vmap(solve_func, in_axes=(0, None, None, None))
-            
-            return jax.jit(vmap_over_t0) if jit_compile else vmap_over_t0
-        
-        case (False, False):
-            
-            return jax.jit(solve_func) if jit_compile else solve_func
+    return jax.jit(solve_func) if jit_compile else solve_func
         
 def flowmap_n(
     term: AbstractTerm,
@@ -187,28 +171,14 @@ def flowmap_n(
         )
         return sol.ys
         
-    match (vmap_y0, chunk_t0):
-        case (True, True):
-            vmap_over_y0 = jax.vmap(_fm, in_axes=(None, 0, None, None, None))
-            chunk_over_t0 = jax.vmap(vmap_over_y0, in_axes=(0, None, None, None, None))
-            
-            return jax.jit(chunk_over_t0) if jit_compile else chunk_over_t0
+    solve_func = _fm
+    if vmap_y0:
+        solve_func = jax.vmap(solve_func, in_axes=(None, 0, None, None, None))
+    if chunk_t0:
+        solve_func = jax.vmap(solve_func, in_axes=(0, None, None, None, None))
         
-        case (True, False):
-            vmap_over_y0 = jax.vmap(_fm, in_axes=(None, 0, None, None, None))
-            
-            return jax.jit(vmap_over_y0) if jit_compile else vmap_over_y0
-        
-        case (False, True):
-            # This case is not recommended in general! This will essentially vmap over only t0.
-            # It is recommended if only vmapping over one arg, it should be the larger batch, y0.
-            vmap_over_t0 = jax.vmap(_fm, in_axes=(0, None, None, None, None))
-            
-            return jax.jit(vmap_over_t0) if jit_compile else vmap_over_t0
-        
-        case (False, False):
-            
-            return jax.jit(_fm) if jit_compile else _fm        
+    return jax.jit(solve_func) if jit_compile else solve_func
+    
            
 def flowmap_loop(
     fm_func: Callable[
