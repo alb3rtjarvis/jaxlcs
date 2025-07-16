@@ -62,8 +62,8 @@ jac_fn_chunk = jlcs.flowmap(
 # reshape t0span for chunking
 t0_chunk = t0span.reshape(5, -1)
 
-# can compute series of DF's with either version, one may be faster depending on hardware and
-# problem size
+# can compute series of DF's with either version, one may be faster depending on hardware,
+# problem size, and chunk size
 
 # will loop over t0span
 DF_t0span = jlcs.flowmap_loop(jac_fn, t0span, Y0, T, dt0, chunk_t0=False)
@@ -71,3 +71,9 @@ DF_t0span = jlcs.flowmap_loop(jac_fn, t0span, Y0, T, dt0, chunk_t0=False)
 DF_t0_chunk = jlcs.flowmap_loop(
     jac_fn_chunk, t0_chunk, Y0, T, dt0, chunk_t0=True
 )
+
+# compute FTLE for full t0span
+ftle_t0span = jlcs.ftle(DF_t0span, T)
+
+# same for chunked version
+ftle_t0_chunk = jlcs.ftle(DF_t0_chunk, T)
