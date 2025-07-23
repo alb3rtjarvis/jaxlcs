@@ -195,7 +195,7 @@ def ftle_ridge_pts(
     tvy = t * vy
     ridge_pts_ = jnp.stack(X, Y, axis=-1) + jnp.stack(tvx, tvy, axis=-1)
     
-    ridge_mask = (f['center'] > percentile) \
+    ridge_mask = (f['center'] > jnp.percentile(f['center'], percentile)) \
                  & (c2 < -sdd_thresh) \
                  & (jnp.abs(tvx) <= dx / 2) \
                  & (jnp.abs(tvy) <= dy / 2)
