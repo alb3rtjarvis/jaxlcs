@@ -101,9 +101,9 @@ def flowmap(
         )
         
     if vmap_y0:
-        solve_func = jax.vmap(solve_func, in_axes=(None, 0, None, None, None))
+        solve_func = jax.vmap(solve_func, in_axes=(None, 0, None, None))
     if chunk_t0:
-        solve_func = jax.vmap(solve_func, in_axes=(0, None, None, None, None))
+        solve_func = jax.vmap(solve_func, in_axes=(0, None, None, None))
         
     return jax.jit(solve_func) if jit_compile else solve_func
         
