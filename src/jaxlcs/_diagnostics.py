@@ -99,7 +99,7 @@ def neighbor_views(arr, mode='constant'):
     arr : jnp.array
         array we wish to perform finite differencing on.
     mode : str, optional
-        pad mode. The default is 'constant'.
+        pad mode. See jnp.pad for more options. The default is 'constant'.
 
     Returns
     -------
@@ -131,7 +131,7 @@ def ftle_ridge_pts(
         s_max: Float[Array, "... 2"], 
         v_max: Float[Array, "... 2 2"],
         X: Float[Array, "..."],
-        Y: Float[Array, "... 2 2"],
+        Y: Float[Array, "..."],
         dx: float,
         dy: float,
         sdd_thresh: float = 0.0, 
@@ -193,7 +193,7 @@ def ftle_ridge_pts(
     t = jnp.where(c2 != 0, numerator / c2, 0.0)
     tvx = t * vx
     tvy = t * vy
-    ridge_pts_ = jnp.stack(X, Y, axis=-1) + jnp.stack(tvx, tvy, axis=-1)
+    ridge_pts_ = jnp.stack((X, Y), axis=-1) + jnp.stack((tvx, tvy), axis=-1)
     
     ridge_mask = (f['center'] > jnp.percentile(f['center'], percentile)) \
                  & (c2 < -sdd_thresh) \
