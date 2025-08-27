@@ -4,7 +4,8 @@ Top-level package for jaxlcs.
 
 from ._vector_field import vector_field, vector_field_linear
 from ._flowmap import flowmap, flowmap_n, flowmap_loop
-from ._diagnostics import ftle
+from ._diagnostics import ftle, ftle_ridge_pts
+from .extraction._hyperbolic import *
 
 __author__ = """Albert Jarvis"""
 __version__ = "0.1.0a1"
