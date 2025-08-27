@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Aug 22 17:53:53 2025
-
-@author: ajarvis
-"""
-
 import jax
 import jax.numpy as jnp
 from jax import lax
@@ -27,6 +19,22 @@ def _in_bounds(point, x_bounds, y_bounds):
     y_in = (yq >= y_bounds[0]) & (yq <= y_bounds[1])
     
     return x_in & y_in
+
+def _in_lcs_region(point, x, y, L, h, region_arr, nearby_points=1):
+
+    xq, yq = point
+    
+    # find bottom-left index of grid-cell that (xq, yq) is in
+    i = jnp.clip(jnp.searchsorted(x, xq, side='right') - 1,  0, len(x) - 2)
+    j = jnp.clip(jnp.searchsorted(y, yq, side='right') - 1,  0, len(y) - 2)  
+    
+    near00 = region_arr[i, j]
+    near01 = region_arr[i, j + 1]
+    near10 = region_arr[i + 1, j]
+    near11 = region_arr[i + 1, j + 1]
+    
+    return jnp.where((near00 + near01 + near10 + near11) >= nearby_points, 0.0, L + h)
+   
 
 def eigvec_interp(x, y, eigvec_grid):
     """
@@ -53,8 +61,8 @@ def eigvec_interp(x, y, eigvec_grid):
     dy = y[1] - y[0]
     
     # interpolator function
-    def _interpolator(query_point):
-        xq, yq = query_point
+    def _interpolator(point):
+        xq, yq = point
         
         # find bottom-left index of grid-cell that (xq, yq) is in
         i = jnp.clip(jnp.searchsorted(x, xq, side='right') - 1,  0, len(x) - 2)
@@ -92,26 +100,31 @@ def eigvec_interp(x, y, eigvec_grid):
     return _interpolator
 
 
-@partial(jax.jit, static_argnames=['eigvec_fun', 'alpha_scaling', 'eigval_max_interp'])
+@partial(jax.jit, static_argnames=['eigvec_fun', 'alpha_scaling', 'eigval_fun'])
 def rk4_tensorlines(
+        x,
+        y,
         eigvec_fun, 
         y0, 
         t0, 
         tf, 
         num_steps, 
         x_bounds, 
-        y_bounds, 
+        y_bounds,
+        lcs_region,
+        L_max,
+        nearby_points=1,
         alpha_scaling=True, 
-        eigval_max_interp=None
+        eigval_fun=None
 ):
     
     if alpha_scaling:
-        if eigval_max_interp is None:
-            raise ValueError("'eigval_max_interp' must be provided when alpha_scaling=True")
+        if eigval_fun is None:
+            raise ValueError("'eigval_fun must be provided when alpha_scaling=True")
         
         # scaled eigvec function
         def _scaled_eigvecs(point):
-            eigval_max = eigval_max_interp(point)
+            eigval_max = eigval_fun(point)
             eigval_min = 1 / eigval_max
             
             alpha = ((eigval_max - eigval_min) / (eigval_max + eigval_min))**2
@@ -129,14 +142,14 @@ def rk4_tensorlines(
     # while loop condition
     def cond_fun(state):
         
-        _, _, step, is_valid, _ = state
-        return is_valid & (step < num_steps)
+        _, _, step, in_domain, L, _ = state
+        return in_domain & (step < num_steps) & (L < L_max)
     
     # while loop body
     def body_fun(state):
         
         # unpack previous state
-        y_prev, k_prev, step, _, incoming_buffer = state
+        y_prev, k_prev, step, _, L_prev, incoming_buffer = state
         
         # rk4 logic
         k1 = _ensure_continuity(f(y_prev), k_prev)
@@ -154,32 +167,35 @@ def rk4_tensorlines(
         y_next = y_prev + (h / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
         
         # make sure y_next is in domain
-        is_valid = _in_bounds(y_next, x_bounds, y_bounds)
+        in_domain = _in_bounds(y_next, x_bounds, y_bounds)
+        
+        # make sure y_next is in LCS region
+        L_next = _in_lcs_region(y_next, x, y, L_prev, h, lcs_region, nearby_points=nearby_points)
         
         # update buffer
         outgoing_buffer = incoming_buffer.at[step + 1].set(y_next)
         
-        return y_next, k4, step + 1, is_valid, outgoing_buffer
+        return y_next, k4, step + 1, in_domain, L_next, outgoing_buffer
     
     # initialize buffer and initial vector
     initial_buffer = jnp.full((num_steps + 1, 2), y0)
     k0 = f(y0)
     
     # define initial state for integrating "forward"
-    init_state = (y0, k0, 0, True, initial_buffer)
+    init_state = (y0, k0, 0, True, 0.0, initial_buffer)
     _, _, final_step_fwd, _, final_results_buffer_fwd = lax.while_loop(
         cond_fun, body_fun, init_state
     )
 
     # define initial state for integrating "backward"
-    init_state = (y0, -k0, 0, True, initial_buffer)
+    init_state = (y0, -k0, 0, True, 0.0, initial_buffer)
     _, _, final_step_bwd, _, final_results_buffer_bwd = lax.while_loop(
         cond_fun, body_fun, init_state
     )
     
     inds = jnp.arange(num_steps + 1)
     
-    # set array values to nan if integration terminated due leaving the domain 
+    # set array values to nan if integration terminated
     mask_fwd = inds > final_step_fwd
     final_results_fwd = jnp.where(mask_fwd[:, None], jnp.nan, final_results_buffer_fwd)
 
@@ -189,38 +205,11 @@ def rk4_tensorlines(
     # combine results into full tensorline
     final_results = jnp.concatenate((final_results_bwd[:-1], final_results_fwd))
     return final_results
-           
 
-
-# @partial(jax.jit, static_argnames='f')
-# def rk4_tensorlines(f, t0, y0, tf, num_steps):
-    
-#     h = (tf - t0) / num_steps
-
-    
-#     def scan_body(carry, _):
-        
-#         yi, ki = carry
-        
-#         k1 = _ensure_continuity(f(yi), ki)
-        
-#         yk2 = yi + 0.5 * h * k1
-#         k2 = _ensure_continuity(f(yk2), k1)
-        
-#         yk3 = yi + 0.5 * h * k2
-#         k3 = _ensure_continuity(f(yk3), k2)
-        
-#         yk4 = yi + h * k3
-#         k4 = _ensure_continuity(f(yk4), k3)
-        
-#         y_next = yi + (h / 6) * (k1 + 2 * k2 + 2* k3 + k4)
-        
-#         return (y_next, k4), y_next
-
-#     init_carry = (y0, f(y0))
-#     _, ys = lax.scan(scan_body, init_carry, length=num_steps)
-#     ts = jnp.linspace(t0, tf, num_steps)
-    
-#     return ts, ys
-           
-        
+__all__ = [
+    '_ensure_continuity', 
+    '_in_bounds', 
+    '_in_lcs_region', 
+    'eigvec_interp', 
+    'rk4_tensorlines'
+]
